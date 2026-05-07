@@ -58,7 +58,7 @@ client = OpenAI(
 # print(response.choices[0].message.content)
 
 response = client.chat.completions.create(
-    model= os.getenv("LLM_MODEL_ID", "qwen3-max"),
+    model= os.getenv("LLM_MODEL_ID"),
     messages=[
         {"role": "system", "content": "你是我的人工智能助手，帮助我解答问题。"},
         {"role": "user", "content": "什么是人工智能？"}
@@ -69,17 +69,9 @@ response = client.chat.completions.create(
 print(response)
 
 for chunk in response:
-    print(chunk)
-    # print(chunk.choices[0].delta.content, end="", flush=True)
-
-
-
-
-
-
-
-
-
+    # print(chunk)
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="", flush=True)
 
 
 # 新接口
