@@ -182,7 +182,7 @@ print(type(prompt))     # <class 'langchain_core.prompt_values.StringPromptValue
 print(prompt)           # text='今天是周五，心情不错。'
 
 # (2) 调用fromat() 
-prompt = prompt_template.format(weekday="周五")       
+prompt = prompt_template.format(weekday="周五")     
 print(type(prompt))     # <class 'str'>，直接返回字符串
 print(prompt)           # 今天是周五，心情不错。
 
@@ -289,7 +289,7 @@ chat_prompt_template = ChatPromptTemplate.from_messages([
 
 history = [
     {"role": "user", "content": "今天周几？"},
-    {"role": "ai", "content": "今天周五。"}      
+    {"role": "ai", "content": "今天周五。"}    
 ]
 
 
@@ -436,3 +436,217 @@ chain = chat_prompt_template | RunnableLambda(print_prompt) | model | StrOutputP
 res = chain.invoke(input={"input": input})
 print(res)
 ```
+
+### 4. Memory
+
+    由于LLM是没有状态(没有记忆),
+
+#### (1) 会话历史
+##### 1. 短期存储
+对于会话历史，Langchain通过以下两个方法实现短期存储：
+- RunnableWithMessageHistory：基于chain创建具备历史记忆功能的**新链**。
+- InMemoryChatMessageHistory：在**内存**中按照会话id进行**临时**存储。
+
+方法讲解：
+```
+# 导入依赖
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.chat_history import InMemoryChatMessageHistory
+
+# InMemoryChatMessageHistory
+store[session_id] = InMemoryChatMessageHistory()     # 直接赋值给一个session_id即可
+
+# RunnableWithMessageHistory
+conversation_chain = RunnableWithMessageHistory(
+    base_chain,                                 # 基础链
+    get_session_history,    #根据sessionid(通过config参数)内存历史的函数，需自定义                      
+    input_messages_key = "input",               # 表示用户输入在模板中的占位符
+    history_messages_key = "chat_history"       # 表示历史消息在模板中的占位符
+)
+```
+具体例子：
+```
+from dotenv import load_dotenv
+import os
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate,MessagesPlaceholder
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.chat_history import InMemoryChatMessageHistory
+
+load_dotenv()
+
+model = ChatOpenAI(
+    model = os.getenv("LLM_MODEL_ID"),  
+    api_key = os.getenv("LLM_API_KEY"),
+    base_url = os.getenv("LLM_BASE_URL")
+)
+
+# 记忆内存存储
+store = {}
+def get_session_history(session_id):
+    if session_id not in store:
+        store[session_id] = InMemoryChatMessageHistory()
+    return store[session_id]
+
+chat_prompt_template = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful assistant."), 
+    MessagesPlaceholder(variable_name="history"),  
+    ("user", "{input}")
+])
+
+question = [
+    "春眠不觉晓的下一句是什么？",
+    "夜来风雨声的下一句是什么？",
+]
+
+def print_prompt(prompt_value):
+    print("========== 当前生成的提示词 ==========")
+    print(prompt_value.to_string())
+    print("======================================")
+    return prompt_value
+
+chain = chat_prompt_template | print_prompt | model
+
+conversation_chain = RunnableWithMessageHistory(
+    chain, 
+    get_session_history,
+    input_messages_key="input",
+    history_messages_key="history",
+)
+
+config = {"configurable": {"session_id": "test_session"}}
+
+for count, q in enumerate(question):
+    res = conversation_chain.invoke(input={"input": q}, config=config)
+    print(f"========== 第 {count + 1} 个问题的模型回复 ==========")
+    print(res.content)
+    print("======================================")
+```
+
+##### 2. 长期存储
+- 长期存储 = 把对话历史持久化到文件 / 数据库 / Redis/MySQL 等，重启不丢失。
+- 本质：自定义一个符合 LangChain 规范的「消息历史存储类」，替代内存版 InMemoryChatMessageHistory。
+
+**存储架构**
+```
+会话ID → 唯一标识一个用户对话
+存储介质（文件/MySQL/Redis）→ 保存 messages 列表
+自定义类 → 实现 add / get / clear
+RunnableWithMessageHistory → 接入链，自动读写历史
+```
+
+**任何存储（文件 / MySQL/Redis）都必须实现以下三个方法**
+```
+# 必须继承 BaseChatMessageHistory
+from langchain_core.chat_history import BaseChatMessageHistory
+
+class XXXChatMessageHistory:
+    # 1. 获取所有历史消息（返回 List[BaseMessage]）
+    @property
+    def messages(self):
+        pass
+
+    # 2. 添加单条用户/AI消息
+    def add_message(self, message):
+        pass
+
+    # 3. 清空当前会话历史
+    def clear(self):
+        pass
+```
+
+以下例子介绍如果将BaseMessage对象 → 字典 → json字符串存入文件中进行长期存储。
+```
+from dotenv import load_dotenv
+import os
+from typing import List
+import json
+
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate,MessagesPlaceholder
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.chat_history import BaseChatMessageHistory  # 需要继承的基类
+from langchain_core.messages import message_to_dict, messages_from_dict
+
+class FileChatMessageHistory(BaseChatMessageHistory):
+    """基于文件存储的聊天记录"""
+    def __init__(self, session_id:str, storage_path:str):
+        self.session_id = session_id
+        self.storage_path = storage_path
+        self.file_path = os.path.join(storage_path, f"{session_id}.json")
+
+    @property
+    def messages(self) -> List[BaseChatMessageHistory]:
+        if not os.path.exists(self.file_path):
+            return []
+        with open(self.file_path, "r", encoding="utf-8") as f:
+            messages_dict = json.load(f)
+        return messages_from_dict(messages_dict)
+
+    def add_message(self, message):
+        messages = self.messages
+        messages.append(message)
+        messages_dict = [message_to_dict(m) for m in messages]
+        with open(self.file_path, "w", encoding="utf-8") as f:
+            json.dump(messages_dict, f, ensure_ascii=False, indent=4)   # indent代表缩进格式化输出
+
+    def clear(self):
+        if os.path.exists(self.file_path):
+            os.remove(self.file_path)
+
+
+load_dotenv()
+
+model = ChatOpenAI(
+    model = os.getenv("LLM_MODEL_ID"),
+    api_key = os.getenv("LLM_API_KEY"),
+    base_url = os.getenv("LLM_BASE_URL")
+)
+
+def get_session_history(session_id):
+    current_dir = os.path.dirname(__file__)
+    storage_path = os.path.join(current_dir, "chat_history")
+    if not os.path.exists(storage_path):
+        os.makedirs(storage_path)
+    return FileChatMessageHistory(session_id, storage_path)
+
+chat_prompt_template = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful assistant."), 
+    MessagesPlaceholder(variable_name="history"),  
+    ("user", "{input}")
+])
+
+question = [
+    "春眠不觉晓的下一句是什么？",
+    "夜来风雨声的下一句是什么？",
+]
+
+def print_prompt(prompt_value):
+    print("========== 当前生成的提示词 ==========")
+    print(prompt_value.to_string())
+    print("======================================")
+    return prompt_value
+
+chain = chat_prompt_template | print_prompt | model
+
+conversation_chain = RunnableWithMessageHistory(
+    chain,
+    get_session_history,
+    input_messages_key="input",
+    history_messages_key="history",
+)
+
+config = {"configurable": {"session_id": "user01_001"}}
+
+for count, q in enumerate(question):
+    res = conversation_chain.invoke(input={"input": q}, config=config)
+    print(f"========== 第 {count + 1} 个问题的模型回复 ==========")
+    print(res.content)
+    print("======================================")
+```
+
+#### (2) 上下文裁剪
+
+#### (3) LangGraph State
+
+

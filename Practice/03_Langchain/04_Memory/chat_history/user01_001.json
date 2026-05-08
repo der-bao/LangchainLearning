@@ -1,0 +1,106 @@
+[
+    {
+        "type": "human",
+        "data": {
+            "content": "春眠不觉晓的下一句是什么？",
+            "additional_kwargs": {},
+            "response_metadata": {},
+            "type": "human",
+            "name": null,
+            "id": null
+        }
+    },
+    {
+        "type": "ai",
+        "data": {
+            "content": "“春眠不觉晓”的下一句是：“处处闻啼鸟。”\n\n整首诗是唐代诗人孟浩然的《春晓》：\n\n春眠不觉晓，  \n处处闻啼鸟。  \n夜来风雨声，  \n花落知多少。",
+            "additional_kwargs": {
+                "refusal": null
+            },
+            "response_metadata": {
+                "token_usage": {
+                    "completion_tokens": 55,
+                    "prompt_tokens": 29,
+                    "total_tokens": 84,
+                    "completion_tokens_details": null,
+                    "prompt_tokens_details": {
+                        "audio_tokens": null,
+                        "cached_tokens": 0
+                    }
+                },
+                "model_provider": "openai",
+                "model_name": "qwen3-max",
+                "system_fingerprint": null,
+                "id": "chatcmpl-921a1a19-af6b-9a71-a3b0-5be3222d5075",
+                "finish_reason": "stop",
+                "logprobs": null
+            },
+            "type": "ai",
+            "name": null,
+            "id": "lc_run--019e077a-6314-75c2-83e2-82abbde3bd47-0",
+            "tool_calls": [],
+            "invalid_tool_calls": [],
+            "usage_metadata": {
+                "input_tokens": 29,
+                "output_tokens": 55,
+                "total_tokens": 84,
+                "input_token_details": {
+                    "cache_read": 0
+                },
+                "output_token_details": {}
+            }
+        }
+    },
+    {
+        "type": "human",
+        "data": {
+            "content": "夜来风雨声的下一句是什么？",
+            "additional_kwargs": {},
+            "response_metadata": {},
+            "type": "human",
+            "name": null,
+            "id": null
+        }
+    },
+    {
+        "type": "ai",
+        "data": {
+            "content": "“夜来风雨声”的下一句是：“花落知多少。”\n\n这是唐代诗人孟浩然《春晓》中的后两句：\n\n夜来风雨声，  \n花落知多少。",
+            "additional_kwargs": {
+                "refusal": null
+            },
+            "response_metadata": {
+                "token_usage": {
+                    "completion_tokens": 40,
+                    "prompt_tokens": 103,
+                    "total_tokens": 143,
+                    "completion_tokens_details": null,
+                    "prompt_tokens_details": {
+                        "audio_tokens": null,
+                        "cached_tokens": 0
+                    }
+                },
+                "model_provider": "openai",
+                "model_name": "qwen3-max",
+                "system_fingerprint": null,
+                "id": "chatcmpl-082ed083-7f76-9c40-945b-efc2f7f24fb1",
+                "finish_reason": "stop",
+                "logprobs": null
+            },
+            "type": "ai",
+            "name": null,
+            "id": "lc_run--019e077a-6eb4-7ea1-8a12-99d36e4ff268-0",
+            "tool_calls": [],
+            "invalid_tool_calls": [],
+            "usage_metadata": {
+                "input_tokens": 103,
+                "output_tokens": 40,
+                "total_tokens": 143,
+                "input_token_details": {
+                    "cache_read": 0
+                },
+                "output_token_details": {}
+            }
+        }
+    }
+]
