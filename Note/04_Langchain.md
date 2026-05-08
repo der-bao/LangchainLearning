@@ -182,7 +182,7 @@ print(type(prompt))     # <class 'langchain_core.prompt_values.StringPromptValue
 print(prompt)           # text='今天是周五，心情不错。'
 
 # (2) 调用fromat() 
-prompt = prompt_template.format(weekday="周五")         
+prompt = prompt_template.format(weekday="周五")       
 print(type(prompt))     # <class 'str'>，直接返回字符串
 print(prompt)           # 今天是周五，心情不错。
 
@@ -256,4 +256,183 @@ print(prompt)
     AI: 今天周五。
     Human: 明天周几？
 """
+```
+
+### 3. Chain
+
+对于Langchain中的大多组件，都是继承于**Runnable**类的子类。在**Runnable**类中重写了魔术方法"__or__()",可以将各组件通过"|"运算符连接起来，前一个组件的输出可以作为后者的输入。
+
+- 前面提到的Model和Prompt组件也是**Runnable**类的子类，因此可以入链。
+- 组件通过"|"得到的chain是RunnableSequence类，也是**Runnable**类的子类。
+
+简单示例：
+
+```
+from dotenv import load_dotenv
+import os
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+load_dotenv()
+
+model = ChatOpenAI(
+    model = os.getenv("LLM_MODEL_ID"),
+    api_key = os.getenv("LLM_API_KEY"),
+    base_url = os.getenv("LLM_BASE_URL")
+)
+
+chat_prompt_template = ChatPromptTemplate.from_messages([
+    ("system", "你是我的人工智能助手，协助我解答问题。"),
+    MessagesPlaceholder("history"),
+    ("user", "{question}")
+])
+
+history = [
+    {"role": "user", "content": "今天周几？"},
+    {"role": "ai", "content": "今天周五。"}      
+]
+
+
+question = "明天周几？"
+
+chain = chat_prompt_template | model
+print(type(chain))                          # <class 'langchain_core.runnables.base.RunnableSequence'>
+
+res = chain.stream(input={
+    "history": history,
+    "question": question
+})
+
+for chunk in res:
+    if chunk.content:
+        print(chunk.content, end="",flush=True)
+```
+
+#### (1) StrOutputParser
+
+字符串输出解释器
+
+- 将model的输出转换为可以输入model的类型
+- 通过 `langchain_core.output_parsers import StrOutputParser`导入。
+
+作用：
+
+- 当想将model的输出传入给model再次调到时，会报错。
+- 因为model的输出是一个AIMessage对象
+- model的输入=只能是LanguageModelInput = PromptValue | str | Sequence[MessageLikeRepresentation]
+  因此，当model组件相邻时，会发生报错。
+
+```
+chain = chat_prompt_template | model | model 
+ValueError: Invalid input type <class 'langchain_core.messages.ai.AIMessageChunk'>. Must be a PromptValue, str, or list of BaseMessages.
+```
+
+通过采用**StrOutputParser**(Runnable子类)可以将model的输出转换为可以输入model的类型。
+
+```
+from dotenv import load_dotenv
+import os
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.output_parsers import StrOutputParser
+
+load_dotenv()
+
+model = ChatOpenAI(
+    model = os.getenv("LLM_MODEL_ID"),
+    api_key = os.getenv("LLM_API_KEY"),
+    base_url = os.getenv("LLM_BASE_URL")
+)
+
+chat_prompt_template = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful assistant."),
+    ("user", "{input}")
+])
+
+input = "春眠不觉晓的下一句是什么？"
+
+chain = chat_prompt_template | model | StrOutputParser() | model
+res = chain.invoke(input={"input": input})
+print(res.content)
+```
+
+#### (2) JsonOutputParser
+
+Json输出解释器
+
+- 将model的输出AIMessage(content是json字符串)转换为字典，可以注入到提示词模板(要求输入是**字典**)中。
+- 通过 `langchain_core.output_parsers import JsonOutputParser`导入。
+- 相当于StrOutputParser()和json.loads()二者的集合
+
+```
+from dotenv import load_dotenv
+import os
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.output_parsers import JsonOutputParser
+
+load_dotenv()
+
+model = ChatOpenAI(
+    model = os.getenv("LLM_MODEL_ID"),
+    api_key = os.getenv("LLM_API_KEY"),
+    base_url = os.getenv("LLM_BASE_URL")
+)
+
+first_prompt_template = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful assistant."),
+    ("user", "我的邻居姓:{lastname},刚生了{gender},请起名，并封装到JSON格式返回给我。要求key是name，value是名字，请严格遵守格式要求。")
+])
+
+second_prompt_template = ChatPromptTemplate.from_messages([
+     ("user", "姓名{name},请帮我解析含义")
+]) 
+
+
+chain = first_prompt_template | model | JsonOutputParser() | second_prompt_template | model
+res = chain.invoke(input={"lastname": "张", "gender": "男"})
+print(res.content)
+```
+
+#### (3) RunnableLambda()
+
+自定义函数组件
+
+- 对一些自定义功能，可以通过**RunnableLambda(function)**，转为一个Runnable对象加入链条
+- 但是不转换也是可以直接加入链条的。
+- 导入方法：`from langchain_core.runnables import RunnableLambda`
+
+```
+from dotenv import load_dotenv
+import os
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnableLambda
+
+load_dotenv()
+
+model = ChatOpenAI(
+    model = os.getenv("LLM_MODEL_ID"),
+    api_key = os.getenv("LLM_API_KEY"),
+    base_url = os.getenv("LLM_BASE_URL")
+)
+
+chat_prompt_template = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful assistant."),
+    ("user", "{input}")
+])
+
+input = "春眠不觉晓的下一句是什么？"
+
+def print_prompt(prompt_value):
+    print("========== 当前生成的提示词 ==========")
+    print(prompt_value.to_string())
+    print("======================================")
+    return prompt_value
+
+
+chain = chat_prompt_template | RunnableLambda(print_prompt) | model | StrOutputParser() 
+res = chain.invoke(input={"input": input})
+print(res)
 ```
