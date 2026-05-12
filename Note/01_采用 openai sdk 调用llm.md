@@ -1,11 +1,11 @@
-## 1. 采用 openai sdk 调用llm
+## 1. 采用 OpenAI SDK 调用 LLM
 
-先采用`client = OpenAI(api_key="...",base_url="...")`创建一个客户端，然后采用如下方法获取回复。
+先采用 `client = OpenAI(api_key="...", base_url="...")` 创建一个客户端，然后调用模型接口获取回复。这里的 `base_url` 可以是 OpenAI 官方地址，也可以是阿里云百炼、Ollama 等兼容 OpenAI API 的服务地址。
 ```
 response = client.chat.completions.create(
     model = "...",
     messages = [
-        # 一共有三种角色,分别为 system/assistant/user
+        # 常用角色：system / user / assistant
         {"role": "system", "content": "你是我的人工智能助手，帮助我解答问题。"},
         {"role": "user", "content": "你是谁？"},
         ...
@@ -14,8 +14,8 @@ response = client.chat.completions.create(
 )
 ```
 
-- 当**直接输出**时，采用`print(response.choices[0].message.content)`得到存储的内容。
-此时，response是一个ChatCompletion对象，具体的结构如下展示：
+- 当**非流式输出**时，采用 `print(response.choices[0].message.content)` 得到回复内容。
+此时，`response` 是一个 `ChatCompletion` 对象，具体结构如下：
  
 ```
 ChatCompletion(
@@ -66,11 +66,11 @@ ChatCompletion(
 | `object='chat.completion'` | 返回对象类型 |
 | `usage` | token 使用统计 |
 
-**因此**，实际的输出内容存储在`choices[0].message.content`
+**因此**，实际的输出内容存储在 `choices[0].message.content`。
 
 
 - **流式输出**
-当采用流式输出时，response是一个**openai.Stream**对象，可以视为一个生成器，不断yield出**ChatCompletionChunk**对象,采用如下方式实现流式输出。
+当采用 Chat Completions 的流式输出时，`response` 是一个 `openai.Stream` 对象，可以视为一个迭代器，不断 yield 出 `ChatCompletionChunk` 对象，采用如下方式实现流式输出。
 
 ```
 response = client.chat.completions.create(
@@ -83,7 +83,7 @@ response = client.chat.completions.create(
 )
 
 for chunk in response:
-    if chunk.type == "response.output_text.delta":
+    if chunk.choices[0].delta.content:
         print(chunk.choices[0].delta.content, end="", flush=True)
 ```
 
@@ -108,7 +108,24 @@ ChatCompletionChunk(
 )
 ```
 
-**因此**，对于每一个切片通过`chunk.choices[0].delta.content`获取实际存储的内容。
+**因此**，对于每一个切片通过 `chunk.choices[0].delta.content` 获取实际增量内容。
+
+注意：`chunk.type == "response.output_text.delta"` 和 `chunk.delta` 是 **Responses API** 流式输出中的写法，不适用于上面的 `client.chat.completions.create(..., stream=True)`。如果使用 Responses API，写法类似：
+
+```
+response = client.responses.create(
+    model=os.getenv("LLM_MODEL_ID"),
+    input=[
+        {"role": "system", "content": "你是我的人工智能助手，帮助我解答问题。"},
+        {"role": "user", "content": "什么是人工智能？"}
+    ],
+    stream=True
+)
+
+for chunk in response:
+    if chunk.type == "response.output_text.delta":
+        print(chunk.delta, end="", flush=True)
+```
 
 
 
