@@ -11,3 +11,7 @@ wheels/
 
 
 .env
+
+
+# 忽略qdrant存储
+qdrant_storage/

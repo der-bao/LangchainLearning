@@ -802,3 +802,233 @@ for i, doc in enumerate(split_docs):
     print(doc.page_content)
     print("======================================")
 ```
+
+
+### 6. Vector Store
+采用**Qdrant**进行向量存储。
+
+
+#### (1) Qdrant
+
+Qdrant的相关概念：
+- size: 向量的维度
+- distance: 计算空间距离采用的函数
+- collection: 类似数据库的表。  
+
+每个点的数据结构及各参数作用如下：
+Point = 
+  1. id (唯一标识) 
+  2. vector (向量，必须是数字数组) 
+  3. payload (**元数据**，JSON 格式，用于筛选，可选)
+
+以下是qdrant的**原生**操作
+```
+from dotenv import load_dotenv
+import os
+
+from qdrant_client import QdrantClient
+
+load_dotenv()
+
+# 1. 定义客户端
+client = QdrantClient(
+    host = os.getenv("QDRANT_HOST"),
+    port = os.getenv("QDRANT_PORT")
+)
+
+print(client.get_collections())
+
+
+# 2. 创建一个新的 collection
+from qdrant_client.models import Distance, VectorParams
+
+collection_name = os.getenv("QDRANT_COLLECTION") # 从 QDRANT_COLLECTION 获取
+vector_size = int(os.getenv("QDRANT_VECTOR_SIZE"))
+
+# 如果集合不存在则创建
+if not client.collection_exists(collection_name):
+    client.create_collection(
+        collection_name=collection_name,
+        vectors_config=VectorParams(
+            size=vector_size,               
+            distance=Distance.COSINE
+        )
+    )
+
+print(client.get_collections())
+
+# 3. 插入向量
+
+from qdrant_client.models import PointStruct
+
+# 补齐维度以匹配设置的 384 维度
+test_vector = [0.1, 0.2, 0.3, 0.4] + [0.0] * (vector_size - 4)
+
+client.upsert(
+    collection_name=collection_name,
+    points=[                            # List[PointStruct]
+        PointStruct(
+            id=1,
+            vector=test_vector,
+            payload={
+                "text": "JWT 是 Token 格式",
+                "category": "backend"
+            }
+        ),
+        PointStruct(
+            id=2,
+            vector=test_vector,
+            payload={
+                "text": "text2",
+                "category": "backend"
+            }
+        ),
+        PointStruct(
+            id=3,
+            vector=[0.15]*vector_size,
+            payload={
+                "text": "text3",
+                "category": "frontend"
+            }
+        )
+    ]
+)
+
+print("插入成功")
+
+
+# 5. 查询向量
+query_vector = [0.15]*vector_size  # 查询向量，维度与插入的向量相同
+
+# 搜索 top-2 最相似
+search_result = client.query_points(
+    collection_name=collection_name,
+    query=query_vector,
+    limit=2
+)
+
+print(type(search_result))          # <class 'qdrant_client.http.models.models.QueryResponse'>
+
+# 打印结果
+for hit in search_result.points:
+    print(f"ID: {hit.id}, 得分: {hit.score:.4f}, 内容: {hit.payload}")
+
+
+# 先结构化过滤再查询
+from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+# 只搜 category = "backend" 的结果
+search_result = client.query_points(
+    collection_name=collection_name,
+    query=query_vector,
+    query_filter=Filter(
+        must=[
+            FieldCondition(
+                key="category",
+                match=MatchValue(value="backend")
+            )
+        ]
+    ),
+    limit=2
+)
+
+print("结构化过滤后查询结果：")
+for hit in search_result.points:
+    print(f"ID: {hit.id}, 得分: {hit.score:.4f}, 内容: {hit.payload}")
+```
+
+#### (2) VectorStore
+VectorStore是Langchain中向量存储的基类，所有继承VectorStore类要求实现以下接口
+```
+add_documents()
+delete()
+similarity_search()
+as_retriever()  # 将VectorStore对象转为一个Retriever对象，可以直接入链。
+```
+简单示例：
+```
+from dotenv import load_dotenv
+import os 
+
+from langchain_community.embeddings import DashScopeEmbeddings
+from qdrant_client import QdrantClient
+from langchain_qdrant import QdrantVectorStore
+from qdrant_client.models import VectorParams, Distance
+
+
+load_dotenv()
+
+embed = DashScopeEmbeddings(
+    model = os.getenv("EMBEDDING_MODEL_ID"), 
+    dashscope_api_key = os.getenv("EMBEDDING_API_KEY"),
+)
+
+client = QdrantClient(
+    host = os.getenv("QDRANT_HOST"),
+    port = os.getenv("QDRANT_PORT")
+)
+
+# 初始化一个空的 QdrantVectorStore
+collection_name = "test_collection"
+
+if not client.collection_exists(collection_name):
+    print(f"集合 {collection_name} 不存在，正在创建...")
+    client.create_collection(
+        collection_name=collection_name,
+        vectors_config=VectorParams(size=1536, distance=Distance.COSINE) # 阿里云 text-embedding-v1/v2 是 1536 维
+    )
+
+vector_store = QdrantVectorStore(
+    client=client,
+    collection_name=collection_name,
+    embedding=embed
+)
+
+print(f"Vector Store 初始化成功: {vector_store}")
+
+# ========================================
+# 插入向量
+
+from langchain_core.documents import Document
+
+docs = [
+    Document(page_content="Qdrant 是高性能向量数据库", metadata={"source": "wiki"}),
+    Document(page_content="LangChain 是 LLM 应用框架", metadata={"source": "docs"})
+]
+
+# 写入 Qdrant（自动生成向量 → 变成 Point 存入）
+vector_store.add_documents(docs)
+
+
+# ========================================
+# 查询向量
+
+results = vector_store.similarity_search("向量数据库", k=1)     # list[Document]
+
+for doc in results:
+    print(doc.page_content)
+    print(doc.metadata)
+
+# ========================================
+# 结构化过滤查询
+# 只查 source=wiki 的文档
+from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+results = vector_store.similarity_search(
+    "向量数据库",
+    k=1,
+    filter=Filter(
+        must=[
+            FieldCondition(
+                key="metadata.source", # 在 Langchain 中，Document 的 metadata 会被嵌套存在 payload 的 "metadata" 键下
+                match=MatchValue(value="wiki")
+            )
+        ]
+    )
+)
+print("结构化过滤后查询结果：")
+for doc in results:
+    print(doc.page_content)
+    print(doc.metadata)
+```
+
